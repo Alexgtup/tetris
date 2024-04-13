@@ -1,52 +1,70 @@
 import React from 'react';
-import { LineBasicMaterial, BufferGeometry, LineSegments, Vector3 } from 'three';
+import { LineBasicMaterial, BufferGeometry, LineSegments, Vector3, Color } from 'three';
 import { Text } from '@react-three/drei';
 
-const ThreeSidedGrid = ({ cellSize, widthBack, heightLeft }) => {
+function getContrastColor(hexColor) {
+  const color = new Color(hexColor);
+  const d = color.r * 0.299 + color.g * 0.587 + color.b * 0.114;
+  return d > 0.5 ? 'black' : 'white';
+}
+
+const ThreeSidedGrid = ({ cellSize, widthBack, depthFront, heightLeft, colors }) => {
     const lines = [];
-    const material = new LineBasicMaterial({ color: 'gray' });
+    
+    const materialBottom = new LineBasicMaterial({ color: getContrastColor(colors.frontColor) });
+    const materialLeft = new LineBasicMaterial({ color: getContrastColor(colors.leftColor) });
+    const materialBack = new LineBasicMaterial({ color: getContrastColor(colors.backColor) });
 
-    // горизонт и вертикальные линии для нижней сетки
-    for (let i = 0; i <= widthBack; i++) {
-        const horizontalLinePointsBottom = [new Vector3(0, 0, i * cellSize), new Vector3(widthBack * cellSize, 0, i * cellSize)];
-        const horizontalGeometryBottom = new BufferGeometry().setFromPoints(horizontalLinePointsBottom);
-        lines.push(<primitive object={new LineSegments(horizontalGeometryBottom, material)} key={`h-bottom-${i}`} />);
-
-        const verticalLinePointsBottom = [new Vector3(i * cellSize, 0, 0), new Vector3(i * cellSize, 0, widthBack * cellSize)];
-        const verticalGeometryBottom = new BufferGeometry().setFromPoints(verticalLinePointsBottom);
-        lines.push(<primitive object={new LineSegments(verticalGeometryBottom, material)} key={`v-bottom-${i}`} />);
+    for (let i = 0; i <= depthFront; i++) {
+        const horizontalGeometryBottom = new BufferGeometry().setFromPoints([
+            new Vector3(0, 0, i * cellSize), 
+            new Vector3(widthBack * cellSize, 0, i * cellSize)
+        ]);
+        lines.push(<primitive object={new LineSegments(horizontalGeometryBottom, materialBottom)} key={`bottom-h-${i}`} />);
     }
 
-    // горизонт и вертикальные линии для левой сетки
+    for (let i = 0; i <= widthBack; i++) {
+        const verticalGeometryBottom = new BufferGeometry().setFromPoints([
+            new Vector3(i * cellSize, 0, 0), 
+            new Vector3(i * cellSize, 0, depthFront * cellSize)
+        ]);
+        lines.push(<primitive object={new LineSegments(verticalGeometryBottom, materialBottom)} key={`bottom-v-${i}`} />);
+    }
+
     for (let i = 0; i <= heightLeft; i++) {
-        const horizontalLinePointsLeft = [new Vector3(0, i * cellSize, 0), new Vector3(0, i * cellSize, widthBack * cellSize)];
-        const horizontalGeometryLeft = new BufferGeometry().setFromPoints(horizontalLinePointsLeft);
-        lines.push(<primitive object={new LineSegments(horizontalGeometryLeft, material)} key={`h-left-${i}`} />);
-    }
-    for (let i = 0; i <= widthBack; i++) {
-        const verticalLinePointsLeft = [new Vector3(0, 0, i * cellSize), new Vector3(0, heightLeft * cellSize, i * cellSize)];
-        const verticalGeometryLeft = new BufferGeometry().setFromPoints(verticalLinePointsLeft);
-        lines.push(<primitive object={new LineSegments(verticalGeometryLeft, material)} key={`v-left-${i}`} />);
+        const horizontalGeometryLeft = new BufferGeometry().setFromPoints([
+            new Vector3(0, i * cellSize, 0), 
+            new Vector3(0, i * cellSize, widthBack * cellSize)
+        ]);
+        lines.push(<primitive object={new LineSegments(horizontalGeometryLeft, materialLeft)} key={`left-h-${i}`} />);
     }
 
-    // горизонт и вертикальные линии для задней сетки
-    for (let i = 0; i <= heightLeft; i++) {
-        const horizontalLinePointsBack = [new Vector3(0, i * cellSize, 0), new Vector3(widthBack * cellSize, i * cellSize, 0)];
-        const horizontalGeometryBack = new BufferGeometry().setFromPoints(horizontalLinePointsBack);
-        lines.push(<primitive object={new LineSegments(horizontalGeometryBack, material)} key={`h-back-${i}`} />);
-    }
     for (let i = 0; i <= widthBack; i++) {
-        const verticalLinePointsBack = [new Vector3(i * cellSize, 0, 0), new Vector3(i * cellSize, heightLeft * cellSize, 0)];
-        const verticalGeometryBack = new BufferGeometry().setFromPoints(verticalLinePointsBack);
-        lines.push(<primitive object={new LineSegments(verticalGeometryBack, material)} key={`v-back-${i}`} />);
+        const verticalGeometryLeft = new BufferGeometry().setFromPoints([
+            new Vector3(0, 0, i * cellSize), 
+            new Vector3(0, heightLeft * cellSize, i * cellSize)
+        ]);
+        lines.push(<primitive object={new LineSegments(verticalGeometryLeft, materialLeft)} key={`left-v-${i}`} />);
     }
-    // текст ширины задней сетки (сверху сетки)
+
+    for (let i = 0; i <= heightLeft; i++) {
+        const horizontalGeometryBack = new BufferGeometry().setFromPoints([
+            new Vector3(0, i * cellSize, 0), 
+            new Vector3(widthBack * cellSize, i * cellSize, 0)
+        ]);
+        lines.push(<primitive object={new LineSegments(horizontalGeometryBack, materialBack)} key={`back-h-${i}`} />);
+    }
+
+    for (let i = 0; i <= widthBack; i++) {
+        const verticalGeometryBack = new BufferGeometry().setFromPoints([
+            new Vector3(i * cellSize, 0, 0), 
+            new Vector3(i * cellSize, heightLeft * cellSize, 0)
+        ]);
+        lines.push(<primitive object={new LineSegments(verticalGeometryBack, materialBack)} key={`back-v-${i}`} />);
+    }
+
     const widthBackSizePosition = new Vector3(widthBack * cellSize / 2, heightLeft * cellSize, 0);
-
-    // текст для высоты левой сетки (сбоку сетки)
     const heightLeftSizePosition = new Vector3(0, heightLeft * cellSize / 2, widthBack * cellSize);
-
-
     lines.push(
         <Text
             position={widthBackSizePosition}
@@ -55,8 +73,9 @@ const ThreeSidedGrid = ({ cellSize, widthBack, heightLeft }) => {
             color={'black'}
             anchorX="center"
             anchorY="middle"
+            key="width-back-label"
         >
-            {`${widthBack * cellSize}`}см
+            {`${widthBack * cellSize}`} см
         </Text>
     );
 
@@ -68,10 +87,12 @@ const ThreeSidedGrid = ({ cellSize, widthBack, heightLeft }) => {
             color={'black'}
             anchorX="center"
             anchorY="middle"
+            key="height-left-label"
         >
-            {`${heightLeft * cellSize}`}см
+            {`${heightLeft * cellSize}`} см
         </Text>
     );
+
     return <group>{lines}</group>;
 };
 
