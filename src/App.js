@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import ThreeSidedGrid from './ThreeSidedGrid';
 import TetrisShapes from './TetrisShapes';
-import { getShapeConfiguration, rotateShape } from './utils';
+import { getShapeConfiguration, rotateShape, initialDimensions, initialColors, initialCameraPosition } from './utils';
 import { Physics } from '@react-three/cannon';
 
 import { Vector3 } from 'three';
@@ -17,20 +17,19 @@ import { Vector3 } from 'three';
  * @param {Array<Array<boolean>>} grid - Сетка, где true означает занятую ячейку.
  * @returns {boolean} Возвращает true, если фигуру можно разместить.
  */
+function CameraController({ position }) {
+  const { camera } = useThree();
+
+  useEffect(() => {
+    camera.position.copy(position);
+    camera.updateProjectionMatrix();
+  }, [position]);
+
+  return null;
+}
+
 
 function App() {
-  const initialDimensions = {
-    cellSize: 8,
-    widthBack: 6,
-    heightLeft: 6,
-    depthFront: 6,
-  };
-
-  const initialColors = {
-    backColor: '#ffffff',
-    leftColor: '#ffffff',
-    frontColor: '#ffffff',
-  };
 
   const [dimensions, setDimensions] = useState(initialDimensions);
   const [colors, setColors] = useState(initialColors);
@@ -38,16 +37,45 @@ function App() {
 
   const [sceneBackgroundColor, setSceneBackgroundColor] = useState('#ffffff');
   const [currentView, setCurrentView] = useState('default');
-  const cameraRef = useRef(new Vector3(10, 10, 10)); 
 
   const [cameraPosition, setCameraPosition] = useState(new Vector3(10, 10, 10));
   const [tetrisShapes, setTetrisShapes] = useState([]);
   const [cellSize, setCellSize] = useState(8);
   const [activeShapeIndex, setActiveShapeIndex] = useState(null);
 
-  useEffect(() => {
-  }, []);
 
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (activeShapeIndex === null) return;
+      switch (event.key) {
+        case 'ArrowLeft':
+          moveShape(-1, 0, 0);
+          break;
+        case 'ArrowRight':
+          moveShape(1, 0, 0);
+          break;
+        case 'ArrowUp':
+          moveShape(0, 1, 0);
+          break;
+        case 'ArrowDown':
+          moveShape(0, -1, 0);
+          break;
+        case 'w':
+        case 'W':
+          moveShape(0, 0, 1);
+          break;
+        case 's':
+        case 'S':
+          moveShape(0, 0, -1);
+          break;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [activeShapeIndex, tetrisShapes, moveShape]);
 
   const [grid, setGrid] = useState(() => {
     const rows = dimensions.depthFront;
@@ -66,42 +94,67 @@ function App() {
     gridRef.current = initialGrid;
   }, [dimensions.depthFront, dimensions.widthBack]);
 
+  // Улучшенная функция canMove
+  function canMove(configuration, dx, dz, dy, grid, shapes, currentShapeIndex) {
+    return configuration.every(([x, z]) => {
+      const newX = x + dx;
+      const newZ = z + dz;
+      const newY = dy !== 0 ? Math.floor((currentShapeIndex !== null ? shapes[currentShapeIndex].position.y : 0) / cellSize + dy) : 0;
+      return newX >= 0 && newX < dimensions.widthBack &&
+        newZ >= 0 && newZ < dimensions.depthFront &&
+        newY >= 0 && newY < dimensions.heightLeft &&
+        !isPositionOccupied(newX, newZ, newY, shapes, currentShapeIndex);
+    });
+  }
+
   const addShape = useCallback((shapeType) => {
     const shapeConfiguration = getShapeConfiguration(shapeType);
     const grid = gridRef.current;
     let placementFound = false;
     let offset = { x: 0, y: 0, z: 0 };
 
-    outerLoop:
-    for (let row = 0; row < grid.length; row++) {
-      for (let col = 0; col < grid[row].length; col++) {
+    let centerCol = Math.floor(grid[0].length / 2);
+    let centerRow = Math.floor(grid.length / 2);
+
+    if (canPlaceShape(centerRow, centerCol, shapeConfiguration, grid)) {
+      markGrid(centerRow, centerCol, shapeConfiguration, true, grid);
+      offset = {
+        x: centerCol * cellSize + cellSize / 2,
+        y: cellSize / 2,
+        z: centerRow * cellSize + cellSize / 2 
+      };
+      placementFound = true;
+    } else {
+      const attempts = 100;
+      for (let i = 0; i < attempts; i++) {
+        const row = Math.floor(Math.random() * grid.length);
+        const col = Math.floor(Math.random() * grid[0].length);
         if (canPlaceShape(row, col, shapeConfiguration, grid)) {
           markGrid(row, col, shapeConfiguration, true, grid);
-          offset = { x: col * dimensions.cellSize, y: 0, z: row * dimensions.cellSize };
+          offset = {
+            x: col * cellSize + cellSize / 2, 
+            y: cellSize / 2,
+            z: row * cellSize + cellSize / 2  
+          };
           placementFound = true;
-          break outerLoop;
+          break;
         }
       }
     }
-  
+
     if (!placementFound) {
       alert("No space available to place the shape.");
       return;
     }
 
-    setTetrisShapes(prevShapes => {
-      const newShape = {
-        type: shapeType,
-        color: '#ff0000',
-        position: new Vector3(offset.x, offset.y, offset.z),
-        rotation: 0,
-        configuration: shapeConfiguration
-      };
-      const newShapes = [...prevShapes, newShape];
-      setActiveShapeIndex(tetrisShapes.length);
-      return newShapes;
-    });
-  }, [dimensions, tetrisShapes.length]);
+    setTetrisShapes(prevShapes => [...prevShapes, {
+      type: shapeType,
+      color: '#ff0000',
+      position: new Vector3(offset.x, offset.y, offset.z),
+      rotation: 0,
+      configuration: shapeConfiguration
+    }]);
+  }, [cellSize, gridRef, setTetrisShapes]);
 
   const changeShapeColor = (index, newColor) => {
     if (index == null || index >= tetrisShapes.length) {
@@ -118,104 +171,103 @@ function App() {
   };
 
 
+
+
+  // Проверяем, занята ли позиция другой фигурой
+  function isPositionOccupied(x, z, y, shapes, currentShapeIndex) {
+    return shapes.some((shape, index) => {
+      if (index === currentShapeIndex) return false; // Игнорируем текущую фигуру
+      return shape.configuration.some(([sx, sz, sy]) => {
+        const shapeX = Math.floor(shape.position.x / cellSize) + sx;
+        const shapeZ = Math.floor(shape.position.z / cellSize) + sz;
+        const shapeY = Math.floor(shape.position.y / cellSize) + sy;
+        return shapeX === x && shapeZ === z && shapeY === y; // Проверяем перекрытие
+      });
+    });
+  }
+
+
+  // Получаем конфигурацию для текущей позиции фигуры
+  function getConfigurationForCurrentPosition(shape) {
+    return shape.configuration.map(([x, z, y]) => [
+      Math.floor((shape.position.x + x * cellSize) / cellSize),
+      Math.floor((shape.position.z + z * cellSize) / cellSize),
+      Math.floor((shape.position.y + y * cellSize) / cellSize)
+    ]);
+  }
+
+  // Обновленная функция движения
   function moveShape(direction) {
     if (activeShapeIndex === null || activeShapeIndex >= tetrisShapes.length) return;
-    const activeShape = tetrisShapes[activeShapeIndex];
-    const { x, y, z } = activeShape.position;
-  
-    let newX = x, newY = y, newZ = z;
-  
+    const shape = tetrisShapes[activeShapeIndex];
+    let newPosition = { ...shape.position };
+    const shapeConfiguration = getConfigurationForCurrentPosition(shape);
+
+    let dx = 0, dz = 0, dy = 0;
     switch (direction) {
-      case 'up':
-        newY += dimensions.cellSize;
-        break;
-      case 'down':
-        newY -= dimensions.cellSize;
-        break;
-      case 'left':
-        newX -= dimensions.cellSize;
-        break;
-      case 'right':
-        newX += dimensions.cellSize;
-        break;
-      case 'forward':
-        newZ += dimensions.cellSize;
-        break;
-      case 'backward':
-        newZ -= dimensions.cellSize;
-        break;
+      case 'left': dx = -1; break;
+      case 'right': dx = 1; break;
+      case 'forward': dz = 1; break;
+      case 'backward': dz = -1; break;
+      case 'up': dy = 1; break;
+      case 'down': dy = -1; break;
     }
-  
-    // Проверяем, что новая позиция находится в пределах пола и стен
-    if (newX >= 0 && newX <= (dimensions.widthBack * dimensions.cellSize) &&
-      newZ >= 0 && newZ <= (dimensions.depthFront * dimensions.cellSize) &&
-      newY >= 0) { 
-      const newPosition = new Vector3(newX, newY, newZ);
-      setTetrisShapes(prevShapes => prevShapes.map((shape, index) => {
-        if (index === activeShapeIndex) {
-          return { ...shape, position: newPosition };
-        }
-        return shape;
-      }));
+
+    if (canMove(shapeConfiguration, dx, dz, dy, gridRef.current, tetrisShapes, activeShapeIndex)) {
+      newPosition.x += dx * cellSize;
+      newPosition.z += dz * cellSize;
+      newPosition.y += dy * cellSize;
+      setTetrisShapes(shapes => shapes.map((s, idx) => idx === activeShapeIndex ? { ...s, position: newPosition } : s));
+    } else {
+      console.error("Movement blocked by another shape or boundary.");
     }
   }
-  
-  
-  function rotateActiveShape(degrees) {
-    if (activeShapeIndex === null || activeShapeIndex >= tetrisShapes.length) return;
 
-    setTetrisShapes(prevShapes => prevShapes.map((shape, index) => {
-      if (index === activeShapeIndex) {
-        const newRotation = (shape.rotation + degrees) % 360;
-        const newConfiguration = rotateShape(shape.type, newRotation);
-        const oldCenter = calculateCenter(shape.configuration, shape.position);
-        const newCenter = calculateCenter(newConfiguration, new Vector3(0, 0, 0)); 
-        const newPosition = new Vector3(
-          shape.position.x + oldCenter.x - newCenter.x,
-          shape.position.y,
-          shape.position.z + oldCenter.z - newCenter.z
-        );
-
-        return {
-          ...shape,
-          position: newPosition,
-          rotation: newRotation,
-          configuration: newConfiguration
-        };
-      }
-      return shape;
-    }));
-  }
-
-
-  function calculateCenter(configuration, position) {
-    const xPositions = configuration.map(coord => coord[1]);
-    const zPositions = configuration.map(coord => coord[2]);
-    const averageX = xPositions.reduce((a, b) => a + b, 0) / configuration.length;
-    const averageZ = zPositions.reduce((a, b) => a + b, 0) / configuration.length;
-    const centerX = averageX * dimensions.cellSize + position.x;
-    const centerZ = averageZ * dimensions.cellSize + position.z;
-    return { x: centerX, z: centerZ };
-  }
-
-  const setView = (view) => {
-    const positions = {
-      front: new Vector3(0, 0, 10),
-      side: new Vector3(10, 0, 0),
-      top: new Vector3(0, 10, 0),
-      default: new Vector3(10, 10, 10),
-    };
-    cameraRef.current = positions[view];
-    setSceneBackgroundColor(colors[`${view}Color`]);
-    setCurrentView(view);
-  };
-
-  const updateSize = (dimension) => (e) => {
+  const updateSize = useCallback((dimension) => (e) => {
     setDimensions(prevDimensions => ({
       ...prevDimensions,
       [dimension]: Number(e.target.value)
     }));
+  }, []);
+
+
+  const calculateYOffset = (configuration, cellSize) => {
+    const yValues = configuration.map(config => config[1]); 
+    const minY = Math.min(...yValues); // минимальное значение Y в конфигурации
+    return minY < 0 ? -minY * cellSize : 0; // если минимальное значение Y меньше 0, возвращаем положительное смещение
   };
+
+
+  const rotateActiveShape = useCallback((degrees) => {
+    if (activeShapeIndex === null || activeShapeIndex >= tetrisShapes.length) return;
+    const shape = tetrisShapes[activeShapeIndex];
+    const newRotation = (shape.rotation + degrees) % 360;
+    const newConfiguration = rotateShape(shape.type, newRotation);
+    const yOffset = calculateYOffset(newConfiguration, dimensions.cellSize);
+    const newPosition = new Vector3(shape.position.x, shape.position.y + yOffset, shape.position.z);
+
+    setTetrisShapes(prevShapes => prevShapes.map((s, idx) => {
+      if (idx === activeShapeIndex) {
+        return { ...s, position: newPosition, rotation: newRotation, configuration: newConfiguration };
+      }
+      return s;
+    }));
+  }, [activeShapeIndex, tetrisShapes, dimensions.cellSize]);
+
+  const setView = (view) => {
+    const positions = {
+      front: new Vector3(0, 10, 50),
+      side: new Vector3(50, 10, 0),
+      top: new Vector3(0, 50, 0),
+      default: new Vector3(10, 10, 10)
+    };
+
+    const newCameraPosition = positions[view] || positions['default'];
+    setCameraPosition(newCameraPosition); // Это изменение должно отразиться в JSX
+    setSceneBackgroundColor(colors[`${view}Color`] || '#ffffff'); // Обновляем фоновый цвет
+    setCurrentView(view); // Обновляем текущий вид
+  };
+
 
 
 
@@ -240,8 +292,6 @@ function App() {
 
 
 
-
-
   const saveState = () => {
     const savedState = JSON.stringify({ dimensions, colors, tetrisShapes });
     localStorage.setItem('appState', savedState);
@@ -255,6 +305,21 @@ function App() {
       setTetrisShapes(savedState.tetrisShapes);
     }
   };
+
+  function updateDimensions(e, dimension) {
+    const value = Number(e.target.value);
+
+    // Обновление всех связанных измерений одновременно
+    setDimensions(prevDimensions => ({
+      ...prevDimensions,
+      [dimension]: value,
+      // Поддержка пропорциональных изменений для других измерений:
+      ...(dimension === 'widthBack' ? { depthFront: value } : {}),
+      ...(dimension === 'depthFront' ? { widthBack: value } : {}),
+      // Если изменяется одна из размерных осей, соответствующие высоты или глубины также обновляются
+      ...(dimension === 'heightLeft' ? { heightLeft: value } : {})
+    }));
+  }
 
   return (
     <div style={{ height: "100vh", width: "100vw", backgroundColor: sceneBackgroundColor }}>
@@ -284,13 +349,14 @@ function App() {
         <button onClick={() => changeShapeColor(activeShapeIndex, '#00ff00')}>Зелёный</button>
         <button onClick={() => changeShapeColor(activeShapeIndex, '#0000ff')}>Синий</button>
       </div>
-      <Canvas camera={{ position: cameraRef.current, fov: 50 }}>
+      <Canvas camera={{ fov: 50 }}>
         <ambientLight intensity={0.5} />
-        <pointLight position={cameraRef.current} />
+
+        <CameraController position={cameraPosition} />
+
 
         <OrbitControls
           enableZoom={true}
-          cameraPosition={cameraPosition}
 
           maxPolarAngle={Math.PI / 2}
           minPolarAngle={0}
@@ -300,7 +366,6 @@ function App() {
 
         <Physics>
           <ThreeSidedGrid {...dimensions} colors={colors} />
-          <perspectiveCamera ref={cameraRef} position={cameraPosition} fov={50} />
           {tetrisShapes.map((shape, index) => (
             <TetrisShapes
               key={index}
@@ -308,12 +373,13 @@ function App() {
               color={shape.color}
               position={shape.position}
               rotation={shape.rotation}
-              cellSize={cellSize}
+              cellSize={dimensions.cellSize}
               configuration={shape.configuration}
+              dimensions={dimensions}
               onClick={() => setActiveShapeIndex(index)}
+              setTetrisShapes={setTetrisShapes}
+
             />
-
-
           ))}
         </Physics>
       </Canvas>
@@ -325,6 +391,9 @@ function App() {
         <button onClick={() => moveShape('right')}>Вправо</button>
         <button onClick={() => moveShape('forward')}>Вперёд</button>
         <button onClick={() => moveShape('backward')}>Назад</button>
+        <button onClick={() => moveShape('up')}>вверз</button>
+        <button onClick={() => moveShape('down')}>вниз</button>
+
 
         <div>
           <label htmlFor="cellSize">Размер клетки: </label>
@@ -342,34 +411,24 @@ function App() {
         </div>
 
         <div>
-          <label htmlFor="widthBack">Ширина задней сетки: </label>
+          <label htmlFor="widthBack">Ширина: </label>
           <input
             type="number"
             id="widthBack"
             min="1"
             max="20"
             value={dimensions.widthBack}
-            onChange={updateSize('widthBack')}
+            onChange={(e) => updateDimensions(e, 'widthBack')}
             style={{ width: '50px' }}
           />
-          <label htmlFor="depthFront">Глубина передней сетки: </label>
-          <input
-            type="number"
-            id="depthFront"
-            min="1"
-            max="20"
-            value={dimensions.depthFront}
-            onChange={updateSize('depthFront')}
-            style={{ width: '50px' }}
-          />
-          <label htmlFor="heightLeft">Высота левой сетки: </label>
+          <label htmlFor="heightLeft">Высота: </label>
           <input
             type="number"
             id="heightLeft"
             min="1"
             max="20"
             value={dimensions.heightLeft}
-            onChange={updateSize('heightLeft')}
+            onChange={(e) => updateDimensions(e, 'heightLeft')}
             style={{ width: '50px' }}
           />
         </div>
